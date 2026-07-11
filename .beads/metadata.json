@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "starlink",
+  "project_id": "d1273d77-c12a-4b71-ab8a-7283ca4acdf3"
+}
