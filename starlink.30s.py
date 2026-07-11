@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --script
+#!/opt/homebrew/bin/uv run
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["grpcio", "yagrc"]
