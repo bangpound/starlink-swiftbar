@@ -23,15 +23,23 @@ refresh; rename (e.g. `starlink.1m.py`) to change it.
 
 ## Menu bar
 
-Shows connection state: **Connected** (green), **Alert** (orange, dish-reported
-alerts), **Offline** (active outage), **Disabled** (account/service disabled),
-or **–** (dimmed, not on the Starlink LAN). The dropdown shows latency, drop
-rate, down/up throughput, obstruction %, uptime, and any active alerts.
+Shows the dish's own 15-minute ping success rate (e.g. `🛰 🟢 95.3%`), with a
+colored dot for current state: 🟢 connected, 🟠 alert (dish-reported alerts),
+🔴 offline (active outage) or disabled (account/service), ⚪️ not on the
+Starlink LAN. The dropdown shows the state word, ping success (15m), latency,
+drop rate, down/up throughput, obstruction %, uptime, and any active alerts.
+
+The 15-minute ping success comes from the dish's own history ring buffer
+(`get_history`), so nothing is stored locally.
 
 ## Development
 
+Tests use only the Python standard library (`unittest` + `doctest`) — no
+third-party test runner. The plugin's network imports are lazy, so the tests
+run without `grpcio`/`yagrc` installed and without a reachable dish:
+
 ```bash
-uv run --with pytest pytest tests/ -v   # unit tests (no dish needed)
-uv run ./starlink.30s.py                # render once against the live dish
-uv run ./starlink.30s.py --debug        # dump the raw parsed status JSON
+python3 -m unittest discover -s tests -v   # unit tests + doctests (no dish needed)
+uv run ./starlink.30s.py                   # render once against the live dish
+uv run ./starlink.30s.py --debug           # dump the raw parsed status JSON
 ```

@@ -20,6 +20,19 @@ DEADLINE_S = 4.0
 
 
 def humanize_uptime(seconds: int | str) -> str:
+    """Format an uptime in seconds as a compact d/h/m string.
+
+    Minutes are always shown; larger units only when non-zero.
+
+    >>> humanize_uptime(4062)
+    '1h 7m'
+    >>> humanize_uptime(0)
+    '0m'
+    >>> humanize_uptime(93784)
+    '1d 2h 3m'
+    >>> humanize_uptime("4062")
+    '1h 7m'
+    """
     total = int(seconds)
     minutes, _ = divmod(total, 60)
     hours, minutes = divmod(minutes, 60)
@@ -91,6 +104,13 @@ def ping_success_pct(history):
     per-second ping drop rates, so no state needs to be stored locally.
     Success = 1 - mean(drop); the mean is order-independent, so the whole
     buffer can be averaged without ring-buffer index math.
+
+    >>> ping_success_pct({"pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]})
+    75.0
+    >>> ping_success_pct({}) is None
+    True
+    >>> ping_success_pct({"pop_ping_drop_rate": []}) is None
+    True
     """
     drops = history.get("pop_ping_drop_rate") or []
     if not drops:
