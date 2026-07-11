@@ -11,7 +11,7 @@ DISH_ADDR = "192.168.100.1:9200"
 DEADLINE_S = 4.0
 
 
-def humanize_uptime(seconds) -> str:
+def humanize_uptime(seconds: int | str) -> str:
     total = int(seconds)
     minutes, _ = divmod(total, 60)
     hours, minutes = divmod(minutes, 60)
@@ -49,7 +49,7 @@ ALERT_LABELS = {
 }
 
 
-def active_alerts(status) -> list:
+def active_alerts(status) -> list[str]:
     alerts = status.get("alerts", {})
     out = [label for key, label in ALERT_LABELS.items() if alerts.get(key)]
     if status.get("swupdate_reboot_ready"):

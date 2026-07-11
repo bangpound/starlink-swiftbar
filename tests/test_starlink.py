@@ -61,6 +61,11 @@ def test_active_alerts_includes_pending_software_update():
     assert any("Software update" in a for a in plugin.active_alerts(status))
 
 
+def test_active_alerts_swupdate_reboot_ready():
+    status = {"alerts": {}, "swupdate_reboot_ready": True}
+    assert "Software update ready (reboot)" in plugin.active_alerts(status)
+
+
 def test_state_word_connected():
     assert plugin.state_word(HEALTHY) == ("Connected", "#3cb371")
 
