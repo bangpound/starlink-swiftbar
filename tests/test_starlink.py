@@ -83,3 +83,48 @@ def test_state_word_disabled():
 def test_state_word_offline_on_outage():
     status = {"alerts": {}, "disablement_code": "OKAY", "outage": {"cause": "NO_SCHEDULE"}}
     assert plugin.state_word(status) == ("Offline", "red")
+
+
+def test_render_healthy():
+    out = plugin.render(HEALTHY)
+    lines = out.splitlines()
+    assert lines[0] == "🛰 Connected | color=#3cb371"
+    assert "---" in lines
+    assert "Latency: 19 ms  ·  Drop: 0.0%" in out
+    assert "↓ 18.2 Mbps   ↑ 0.8 Mbps" in out
+    assert "Obstruction: 42.8%" in out
+    assert "Uptime: 1h 7m" in out
+    assert "Alerts: none" in out
+    assert "Open Starlink UI | href=http://192.168.100.1" in out
+    assert "Refresh | refresh=true" in out
+
+
+def test_render_alert_lists_alerts():
+    status = dict(HEALTHY, alerts={"thermal_throttle": True})
+    out = plugin.render(status)
+    assert out.splitlines()[0] == "🛰 Alert | color=orange"
+    assert "⚠ Thermal throttle | color=orange" in out
+    assert "Alerts: none" not in out
+
+
+def test_render_unreachable():
+    out = plugin.render(None)
+    lines = out.splitlines()
+    assert lines[0] == "🛰 – | color=#888888"
+    assert "Dish not reachable" in out
+    assert "Refresh | refresh=true" in out
+
+
+def test_render_error_has_no_traceback():
+    out = plugin.render(None, error="boom")
+    lines = out.splitlines()
+    assert lines[0] == "🛰 ? | color=#888888"
+    assert "Error: boom | color=red" in out
+
+
+def test_render_missing_fields_do_not_crash():
+    # MessageToDict omits zero/empty fields; render must tolerate a bare dict.
+    out = plugin.render({"alerts": {}, "disablement_code": "OKAY"})
+    assert out.splitlines()[0] == "🛰 Connected | color=#3cb371"
+    assert "Latency: — ms" in out
+    assert "Uptime: 0m" in out

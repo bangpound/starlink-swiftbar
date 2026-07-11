@@ -70,5 +70,62 @@ def state_word(status):
     return ("Connected", "#3cb371")
 
 
+def _actions():
+    return [
+        "---",
+        "Open Starlink UI | href=http://192.168.100.1",
+        "Refresh | refresh=true",
+    ]
+
+
+def render(status, error=None) -> str:
+    lines = []
+    if error is not None:
+        lines.append("🛰 ? | color=#888888")
+        lines.append("---")
+        lines.append(f"Error: {error} | color=red")
+        lines.extend(_actions())
+        return "\n".join(lines)
+
+    if status is None:
+        lines.append("🛰 – | color=#888888")
+        lines.append("---")
+        lines.append("Dish not reachable")
+        lines.append("(not connected to Starlink LAN) | color=#888888")
+        lines.extend(_actions())
+        return "\n".join(lines)
+
+    word, color = state_word(status)
+    lines.append(f"🛰 {word} | color={color}")
+    lines.append("---")
+
+    latency = status.get("pop_ping_latency_ms")
+    lat_str = f"{latency:.0f} ms" if latency is not None else "— ms"
+    drop = status.get("pop_ping_drop_rate", 0.0)
+    lines.append(f"Latency: {lat_str}  ·  Drop: {drop * 100:.1f}%")
+
+    down = status.get("downlink_throughput_bps", 0.0) / 1e6
+    up = status.get("uplink_throughput_bps", 0.0) / 1e6
+    lines.append(f"↓ {down:.1f} Mbps   ↑ {up:.1f} Mbps")
+
+    frac = status.get("obstruction_stats", {}).get("fraction_obstructed", 0.0)
+    lines.append(f"Obstruction: {frac * 100:.1f}%")
+
+    uptime = humanize_uptime(status.get("device_state", {}).get("uptime_s", 0))
+    lines.append(f"Uptime: {uptime}")
+
+    lines.append("---")
+    alerts = active_alerts(status)
+    if alerts:
+        lines.append("Alerts:")
+        for alert in alerts:
+            lines.append(f"⚠ {alert} | color=orange")
+    else:
+        lines.append("Alerts: none")
+
+    lines.extend(_actions())
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     pass
