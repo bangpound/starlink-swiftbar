@@ -88,7 +88,7 @@ def test_state_word_offline_on_outage():
 def test_render_healthy():
     out = plugin.render(HEALTHY)
     lines = out.splitlines()
-    assert lines[0] == "🛰 Connected | color=#3cb371"
+    assert lines[0] == "🛰 🟢 Connected"
     assert "---" in lines
     assert "Latency: 19 ms  ·  Drop: 0.0%" in out
     assert "↓ 18.2 Mbps   ↑ 0.8 Mbps" in out
@@ -102,7 +102,7 @@ def test_render_healthy():
 def test_render_alert_lists_alerts():
     status = dict(HEALTHY, alerts={"thermal_throttle": True})
     out = plugin.render(status)
-    assert out.splitlines()[0] == "🛰 Alert | color=orange"
+    assert out.splitlines()[0] == "🛰 🟠 Alert"
     assert "⚠ Thermal throttle | color=orange" in out
     assert "Alerts: none" not in out
 
@@ -110,7 +110,7 @@ def test_render_alert_lists_alerts():
 def test_render_unreachable():
     out = plugin.render(None)
     lines = out.splitlines()
-    assert lines[0] == "🛰 – | color=#888888"
+    assert lines[0] == "🛰 ⚪️"
     assert "Dish not reachable" in out
     assert "Refresh | refresh=true" in out
 
@@ -118,13 +118,13 @@ def test_render_unreachable():
 def test_render_error_has_no_traceback():
     out = plugin.render(None, error="boom")
     lines = out.splitlines()
-    assert lines[0] == "🛰 ? | color=#888888"
+    assert lines[0] == "🛰 ⚠️"
     assert "Error: boom | color=red" in out
 
 
 def test_render_missing_fields_do_not_crash():
     # MessageToDict omits zero/empty fields; render must tolerate a bare dict.
     out = plugin.render({"alerts": {}, "disablement_code": "OKAY"})
-    assert out.splitlines()[0] == "🛰 Connected | color=#3cb371"
+    assert out.splitlines()[0] == "🛰 🟢 Connected"
     assert "Latency: — ms" in out
     assert "Uptime: 0m" in out

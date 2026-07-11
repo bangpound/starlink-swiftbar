@@ -70,6 +70,12 @@ def state_word(status):
     return ("Connected", "#3cb371")
 
 
+# Menu-bar state is signalled by a colored dot emoji (legible on any menu-bar
+# background) rather than colored text, which uses the system default color so
+# it stays readable in light and dark menu bars.
+STATE_DOTS = {"#3cb371": "🟢", "orange": "🟠", "red": "🔴"}
+
+
 def _actions():
     return [
         "---",
@@ -81,14 +87,14 @@ def _actions():
 def render(status, error=None) -> str:
     lines = []
     if error is not None:
-        lines.append("🛰 ? | color=#888888")
+        lines.append("🛰 ⚠️")
         lines.append("---")
         lines.append(f"Error: {error} | color=red")
         lines.extend(_actions())
         return "\n".join(lines)
 
     if status is None:
-        lines.append("🛰 – | color=#888888")
+        lines.append("🛰 ⚪️")
         lines.append("---")
         lines.append("Dish not reachable")
         lines.append("(not connected to Starlink LAN) | color=#888888")
@@ -96,7 +102,8 @@ def render(status, error=None) -> str:
         return "\n".join(lines)
 
     word, color = state_word(status)
-    lines.append(f"🛰 {word} | color={color}")
+    dot = STATE_DOTS.get(color, "⚪️")
+    lines.append(f"🛰 {dot} {word}")
     lines.append("---")
 
     latency = status.get("pop_ping_latency_ms")
