@@ -1,10 +1,23 @@
+"""Unit tests for the Starlink SwiftBar plugin.
+
+Run with the standard library test runner (no third-party deps):
+
+    python3 -m unittest discover -s tests -v
+
+The plugin's own doctests are collected via the ``load_tests`` protocol at the
+bottom of this module, so the same command runs them too.
+"""
+
+import doctest
 import importlib.util
 import pathlib
+import unittest
 
 _PLUGIN = pathlib.Path(__file__).resolve().parent.parent / "starlink.30s.py"
 
 
 def load_plugin():
+    """Load the dotted-filename plugin as a module (can't be a plain import)."""
     spec = importlib.util.spec_from_file_location("starlink_plugin", _PLUGIN)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -12,22 +25,6 @@ def load_plugin():
 
 
 plugin = load_plugin()
-
-
-def test_humanize_uptime_minutes_only():
-    assert plugin.humanize_uptime(4062) == "1h 7m"
-
-
-def test_humanize_uptime_zero():
-    assert plugin.humanize_uptime(0) == "0m"
-
-
-def test_humanize_uptime_days():
-    assert plugin.humanize_uptime(93784) == "1d 2h 3m"
-
-
-def test_humanize_uptime_accepts_string():
-    assert plugin.humanize_uptime("4062") == "1h 7m"
 
 
 HEALTHY = {
@@ -45,101 +42,124 @@ HEALTHY = {
 }
 
 
-def test_active_alerts_none_when_healthy():
-    assert plugin.active_alerts(HEALTHY) == []
+class HumanizeUptimeTests(unittest.TestCase):
+    def test_minutes_only(self):
+        self.assertEqual(plugin.humanize_uptime(4062), "1h 7m")
+
+    def test_zero(self):
+        self.assertEqual(plugin.humanize_uptime(0), "0m")
+
+    def test_days(self):
+        self.assertEqual(plugin.humanize_uptime(93784), "1d 2h 3m")
+
+    def test_accepts_string(self):
+        self.assertEqual(plugin.humanize_uptime("4062"), "1h 7m")
 
 
-def test_active_alerts_lists_true_bools():
-    status = {"alerts": {"thermal_throttle": True, "roaming": True}}
-    result = plugin.active_alerts(status)
-    assert "Thermal throttle" in result
-    assert "Roaming" in result
-    assert len(result) == 2
+class ActiveAlertsTests(unittest.TestCase):
+    def test_none_when_healthy(self):
+        self.assertEqual(plugin.active_alerts(HEALTHY), [])
+
+    def test_lists_true_bools(self):
+        status = {"alerts": {"thermal_throttle": True, "roaming": True}}
+        result = plugin.active_alerts(status)
+        self.assertIn("Thermal throttle", result)
+        self.assertIn("Roaming", result)
+        self.assertEqual(len(result), 2)
+
+    def test_includes_pending_software_update(self):
+        status = {"alerts": {}, "software_update_state": "DOWNLOADING"}
+        self.assertTrue(
+            any("Software update" in a for a in plugin.active_alerts(status))
+        )
+
+    def test_swupdate_reboot_ready(self):
+        status = {"alerts": {}, "swupdate_reboot_ready": True}
+        self.assertIn(
+            "Software update ready (reboot)", plugin.active_alerts(status)
+        )
 
 
-def test_active_alerts_includes_pending_software_update():
-    status = {"alerts": {}, "software_update_state": "DOWNLOADING"}
-    assert any("Software update" in a for a in plugin.active_alerts(status))
+class StateWordTests(unittest.TestCase):
+    def test_connected(self):
+        self.assertEqual(plugin.state_word(HEALTHY), ("Connected", "#3cb371"))
+
+    def test_alert(self):
+        status = {"alerts": {"thermal_throttle": True},
+                  "disablement_code": "OKAY"}
+        self.assertEqual(plugin.state_word(status), ("Alert", "orange"))
+
+    def test_disabled(self):
+        status = {"alerts": {}, "disablement_code": "NO_ACTIVE_ACCOUNT"}
+        self.assertEqual(plugin.state_word(status), ("Disabled", "red"))
+
+    def test_offline_on_outage(self):
+        status = {"alerts": {}, "disablement_code": "OKAY",
+                  "outage": {"cause": "NO_SCHEDULE"}}
+        self.assertEqual(plugin.state_word(status), ("Offline", "red"))
 
 
-def test_active_alerts_swupdate_reboot_ready():
-    status = {"alerts": {}, "swupdate_reboot_ready": True}
-    assert "Software update ready (reboot)" in plugin.active_alerts(status)
+class PingSuccessPctTests(unittest.TestCase):
+    def test_computes_mean(self):
+        hist = {"pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]}
+        self.assertEqual(plugin.ping_success_pct(hist), 75.0)
+
+    def test_none_when_empty(self):
+        self.assertIsNone(plugin.ping_success_pct({}))
+        self.assertIsNone(plugin.ping_success_pct({"pop_ping_drop_rate": []}))
 
 
-def test_state_word_connected():
-    assert plugin.state_word(HEALTHY) == ("Connected", "#3cb371")
+class RenderTests(unittest.TestCase):
+    def test_healthy(self):
+        out = plugin.render(HEALTHY)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "🛰 🟢 93.9%")
+        self.assertIn("---", lines)
+        self.assertIn("Connected | color=#3cb371", out)
+        self.assertIn("Ping success (15m): 93.9%", out)
+        self.assertIn("Latency: 19 ms  ·  Drop: 0.0%", out)
+        self.assertIn("↓ 18.2 Mbps   ↑ 0.8 Mbps", out)
+        self.assertIn("Obstruction: 42.8%", out)
+        self.assertIn("Uptime: 1h 7m", out)
+        self.assertIn("Alerts: none", out)
+        self.assertIn("Open Starlink UI | href=http://192.168.100.1", out)
+        self.assertIn("Refresh | refresh=true", out)
+
+    def test_alert_lists_alerts(self):
+        status = dict(HEALTHY, alerts={"thermal_throttle": True})
+        out = plugin.render(status)
+        self.assertEqual(out.splitlines()[0], "🛰 🟠 93.9%")
+        self.assertIn("Alert | color=orange", out)
+        self.assertIn("⚠ Thermal throttle | color=orange", out)
+        self.assertNotIn("Alerts: none", out)
+
+    def test_unreachable(self):
+        out = plugin.render(None)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "🛰 ⚪️")
+        self.assertIn("Dish not reachable", out)
+        self.assertIn("Refresh | refresh=true", out)
+
+    def test_error_has_no_traceback(self):
+        out = plugin.render(None, error="boom")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "🛰 ⚠️")
+        self.assertIn("Error: boom | color=red", out)
+
+    def test_missing_fields_do_not_crash(self):
+        # MessageToDict omits zero/empty fields; render must tolerate a bare dict.
+        out = plugin.render({"alerts": {}, "disablement_code": "OKAY"})
+        # no ping_success_15m key -> menu bar shows the dot alone, no percentage
+        self.assertEqual(out.splitlines()[0], "🛰 🟢")
+        self.assertIn("Latency: — ms", out)
+        self.assertIn("Uptime: 0m", out)
 
 
-def test_state_word_alert():
-    status = {"alerts": {"thermal_throttle": True}, "disablement_code": "OKAY"}
-    assert plugin.state_word(status) == ("Alert", "orange")
+def load_tests(loader, tests, ignore):
+    """unittest hook: also run the plugin module's doctests."""
+    tests.addTests(doctest.DocTestSuite(plugin))
+    return tests
 
 
-def test_state_word_disabled():
-    status = {"alerts": {}, "disablement_code": "NO_ACTIVE_ACCOUNT"}
-    assert plugin.state_word(status) == ("Disabled", "red")
-
-
-def test_state_word_offline_on_outage():
-    status = {"alerts": {}, "disablement_code": "OKAY", "outage": {"cause": "NO_SCHEDULE"}}
-    assert plugin.state_word(status) == ("Offline", "red")
-
-
-def test_render_healthy():
-    out = plugin.render(HEALTHY)
-    lines = out.splitlines()
-    assert lines[0] == "🛰 🟢 93.9%"
-    assert "---" in lines
-    assert "Connected | color=#3cb371" in out
-    assert "Ping success (15m): 93.9%" in out
-    assert "Latency: 19 ms  ·  Drop: 0.0%" in out
-    assert "↓ 18.2 Mbps   ↑ 0.8 Mbps" in out
-    assert "Obstruction: 42.8%" in out
-    assert "Uptime: 1h 7m" in out
-    assert "Alerts: none" in out
-    assert "Open Starlink UI | href=http://192.168.100.1" in out
-    assert "Refresh | refresh=true" in out
-
-
-def test_render_alert_lists_alerts():
-    status = dict(HEALTHY, alerts={"thermal_throttle": True})
-    out = plugin.render(status)
-    assert out.splitlines()[0] == "🛰 🟠 93.9%"
-    assert "Alert | color=orange" in out
-    assert "⚠ Thermal throttle | color=orange" in out
-    assert "Alerts: none" not in out
-
-
-def test_render_unreachable():
-    out = plugin.render(None)
-    lines = out.splitlines()
-    assert lines[0] == "🛰 ⚪️"
-    assert "Dish not reachable" in out
-    assert "Refresh | refresh=true" in out
-
-
-def test_render_error_has_no_traceback():
-    out = plugin.render(None, error="boom")
-    lines = out.splitlines()
-    assert lines[0] == "🛰 ⚠️"
-    assert "Error: boom | color=red" in out
-
-
-def test_render_missing_fields_do_not_crash():
-    # MessageToDict omits zero/empty fields; render must tolerate a bare dict.
-    out = plugin.render({"alerts": {}, "disablement_code": "OKAY"})
-    # no ping_success_15m key -> menu bar shows the dot alone, no percentage
-    assert out.splitlines()[0] == "🛰 🟢"
-    assert "Latency: — ms" in out
-    assert "Uptime: 0m" in out
-
-
-def test_ping_success_pct_computes_mean():
-    hist = {"pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]}
-    assert plugin.ping_success_pct(hist) == 75.0
-
-
-def test_ping_success_pct_none_when_empty():
-    assert plugin.ping_success_pct({}) is None
-    assert plugin.ping_success_pct({"pop_ping_drop_rate": []}) is None
+if __name__ == "__main__":
+    unittest.main()
