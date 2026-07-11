@@ -41,6 +41,7 @@ HEALTHY = {
     "pop_ping_latency_ms": 19.134296,
     "software_update_state": "IDLE",
     "disablement_code": "OKAY",
+    "ping_success_15m": 93.9,
 }
 
 
@@ -88,8 +89,10 @@ def test_state_word_offline_on_outage():
 def test_render_healthy():
     out = plugin.render(HEALTHY)
     lines = out.splitlines()
-    assert lines[0] == "🛰 🟢 Connected"
+    assert lines[0] == "🛰 🟢 93.9%"
     assert "---" in lines
+    assert "Connected | color=#3cb371" in out
+    assert "Ping success (15m): 93.9%" in out
     assert "Latency: 19 ms  ·  Drop: 0.0%" in out
     assert "↓ 18.2 Mbps   ↑ 0.8 Mbps" in out
     assert "Obstruction: 42.8%" in out
@@ -102,7 +105,8 @@ def test_render_healthy():
 def test_render_alert_lists_alerts():
     status = dict(HEALTHY, alerts={"thermal_throttle": True})
     out = plugin.render(status)
-    assert out.splitlines()[0] == "🛰 🟠 Alert"
+    assert out.splitlines()[0] == "🛰 🟠 93.9%"
+    assert "Alert | color=orange" in out
     assert "⚠ Thermal throttle | color=orange" in out
     assert "Alerts: none" not in out
 
@@ -125,6 +129,17 @@ def test_render_error_has_no_traceback():
 def test_render_missing_fields_do_not_crash():
     # MessageToDict omits zero/empty fields; render must tolerate a bare dict.
     out = plugin.render({"alerts": {}, "disablement_code": "OKAY"})
-    assert out.splitlines()[0] == "🛰 🟢 Connected"
+    # no ping_success_15m key -> menu bar shows the dot alone, no percentage
+    assert out.splitlines()[0] == "🛰 🟢"
     assert "Latency: — ms" in out
     assert "Uptime: 0m" in out
+
+
+def test_ping_success_pct_computes_mean():
+    hist = {"pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]}
+    assert plugin.ping_success_pct(hist) == 75.0
+
+
+def test_ping_success_pct_none_when_empty():
+    assert plugin.ping_success_pct({}) is None
+    assert plugin.ping_success_pct({"pop_ping_drop_rate": []}) is None

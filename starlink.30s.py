@@ -3,6 +3,14 @@
 # requires-python = ">=3.11"
 # dependencies = ["grpcio", "yagrc"]
 # ///
+# <xbar.title>Starlink Status</xbar.title>
+# <xbar.version>1.0.0</xbar.version>
+# <xbar.author>Benjamin Doherty</xbar.author>
+# <xbar.author.github>bangpound</xbar.author.github>
+# <xbar.desc>Starlink dish status in the menu bar: 15-minute ping success rate, connection state, latency, throughput, obstruction, uptime, and alerts. Reads the dish gRPC API at 192.168.100.1:9200.</xbar.desc>
+# <xbar.dependencies>python,uv</xbar.dependencies>
+# <xbar.abouturl>http://192.168.100.1</xbar.abouturl>
+# <swiftbar.hideAbout>false</swiftbar.hideAbout>
 """SwiftBar plugin: Starlink dish status in the macOS menu bar."""
 
 import sys
@@ -76,6 +84,20 @@ def state_word(status):
 STATE_DOTS = {"#3cb371": "🟢", "orange": "🟠", "red": "🔴"}
 
 
+def ping_success_pct(history):
+    """15-minute ping success rate (%) from a get_history dict, or None.
+
+    The dish keeps its own ~900-sample (15 min at 1/s) ring buffer of
+    per-second ping drop rates, so no state needs to be stored locally.
+    Success = 1 - mean(drop); the mean is order-independent, so the whole
+    buffer can be averaged without ring-buffer index math.
+    """
+    drops = history.get("pop_ping_drop_rate") or []
+    if not drops:
+        return None
+    return (1.0 - sum(drops) / len(drops)) * 100.0
+
+
 def _actions():
     return [
         "---",
@@ -103,8 +125,15 @@ def render(status, error=None) -> str:
 
     word, color = state_word(status)
     dot = STATE_DOTS.get(color, "⚪️")
-    lines.append(f"🛰 {dot} {word}")
+    pct = status.get("ping_success_15m")
+    lines.append(f"🛰 {dot} {pct:.1f}%" if pct is not None else f"🛰 {dot}")
     lines.append("---")
+
+    # The descriptive state word lives in the dropdown now (the dot carries
+    # current state in the menu bar); color is legible on the dropdown bg.
+    lines.append(f"{word} | color={color}")
+    if pct is not None:
+        lines.append(f"Ping success (15m): {pct:.1f}%")
 
     latency = status.get("pop_ping_latency_ms")
     lat_str = f"{latency:.0f} ms" if latency is not None else "— ms"
@@ -147,6 +176,13 @@ def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
         request_class = reflector.message_class("SpaceX.API.Device.Request")
         stub = stub_class(channel)
         response = stub.Handle(request_class(get_status={}), timeout=timeout)
+        # 15-minute ping history is best-effort: a failure here must not lose
+        # the status we already have.
+        try:
+            hist_response = stub.Handle(request_class(get_history={}),
+                                        timeout=timeout)
+        except grpc.RpcError:
+            hist_response = None
     except grpc.RpcError as exc:
         if exc.code() in (grpc.StatusCode.UNAVAILABLE,
                           grpc.StatusCode.DEADLINE_EXCEEDED):
@@ -156,7 +192,13 @@ def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
         channel.close()
 
     parsed = MessageToDict(response, preserving_proto_field_name=True)
-    return parsed.get("dish_get_status", {})
+    status = parsed.get("dish_get_status", {})
+    if hist_response is not None:
+        history = MessageToDict(
+            hist_response, preserving_proto_field_name=True
+        ).get("dish_get_history", {})
+        status["ping_success_15m"] = ping_success_pct(history)
+    return status
 
 
 def main(argv=None) -> None:
