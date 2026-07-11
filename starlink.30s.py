@@ -127,5 +127,44 @@ def render(status, error=None) -> str:
     return "\n".join(lines)
 
 
+def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
+    import grpc
+    from google.protobuf.json_format import MessageToDict
+    from yagrc import reflector as yagrc_reflector
+
+    channel = grpc.insecure_channel(addr)
+    try:
+        reflector = yagrc_reflector.GrpcReflectionClient()
+        reflector.load_protocols(channel, symbols=["SpaceX.API.Device.Device"])
+        stub_class = reflector.service_stub_class("SpaceX.API.Device.Device")
+        request_class = reflector.message_class("SpaceX.API.Device.Request")
+        stub = stub_class(channel)
+        response = stub.Handle(request_class(get_status={}), timeout=timeout)
+    except grpc.RpcError as exc:
+        if exc.code() in (grpc.StatusCode.UNAVAILABLE,
+                          grpc.StatusCode.DEADLINE_EXCEEDED):
+            return None
+        raise
+    finally:
+        channel.close()
+
+    parsed = MessageToDict(response, preserving_proto_field_name=True)
+    return parsed.get("dish_get_status", {})
+
+
+def main(argv=None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    try:
+        status = fetch_status()
+    except Exception as exc:  # never leak a traceback to the menu bar
+        print(render(None, error=str(exc)))
+        return
+    if "--debug" in argv:
+        import json
+        print(json.dumps(status, indent=2))
+        return
+    print(render(status))
+
+
 if __name__ == "__main__":
-    pass
+    main()
