@@ -207,7 +207,7 @@ class ErrorTextTests(unittest.TestCase):
 class MainTests(unittest.TestCase):
     def test_fetch_error_renders_single_error_line(self):
         def failing_fetch():
-            raise Exception("line one | color=green\nline two")
+            raise RuntimeError("line one | color=green\nline two")
         out = io.StringIO()
         with mock.patch.object(plugin, "fetch_status", failing_fetch), \
                 contextlib.redirect_stdout(out):
