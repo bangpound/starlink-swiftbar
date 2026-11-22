@@ -8,10 +8,13 @@ The plugin's own doctests are collected via the ``load_tests`` protocol at the
 bottom of this module, so the same command runs them too.
 """
 
+import contextlib
 import doctest
 import importlib.util
+import io
 import pathlib
 import unittest
+from unittest import mock
 
 _PLUGIN = pathlib.Path(__file__).resolve().parent.parent / "starlink.30s.py"
 
@@ -153,6 +156,46 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(out.splitlines()[0], "🛰 🟢")
         self.assertIn("Latency: — ms", out)
         self.assertIn("Uptime: 0m", out)
+
+
+class ErrorTextTests(unittest.TestCase):
+    def test_multiline_message_reduced_to_first_line(self):
+        exc = Exception("<_InactiveRpcError of RPC that terminated with:\n"
+                        "\tstatus = StatusCode.UNIMPLEMENTED\n\tdetails = x>")
+        self.assertEqual(plugin.error_text(exc),
+                         "<_InactiveRpcError of RPC that terminated with:")
+
+    def test_prefers_grpc_details(self):
+        class FakeRpcError(Exception):
+            def details(self):
+                return "Method not found"
+        self.assertEqual(plugin.error_text(FakeRpcError("noisy\nrepr")),
+                         "Method not found")
+
+    def test_pipe_cannot_inject_swiftbar_params(self):
+        self.assertNotIn("|", plugin.error_text(Exception("a | href=x")))
+
+    def test_truncates_long_messages(self):
+        self.assertLessEqual(len(plugin.error_text(Exception("x" * 500))), 120)
+
+    def test_empty_message_falls_back_to_type_name(self):
+        self.assertEqual(plugin.error_text(KeyError()), "KeyError")
+
+
+class MainTests(unittest.TestCase):
+    def test_fetch_error_renders_single_error_line(self):
+        def failing_fetch():
+            raise Exception("line one | color=green\nline two")
+        out = io.StringIO()
+        with mock.patch.object(plugin, "fetch_status", failing_fetch), \
+                contextlib.redirect_stdout(out):
+            plugin.main([])
+        lines = out.getvalue().splitlines()
+        self.assertEqual(lines[0], "🛰 ⚠️")
+        self.assertEqual(lines[2].count("|"), 1)
+        self.assertTrue(lines[2].startswith("Error: line one"))
+        self.assertTrue(lines[2].endswith("| color=red"))
+        self.assertNotIn("line two", out.getvalue())
 
 
 def load_tests(loader, tests, ignore):
