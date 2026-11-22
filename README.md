@@ -45,6 +45,6 @@ uv run ./starlink.30s.py --debug                               # dump the raw pa
 ```
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull
-request: `ruff check`, the test suite on Python 3.11–3.14, and a macOS smoke run
+request: `ruff check`, the test suite on Python 3.11–3.15 (ARM Linux), and a macOS arm64 smoke run
 that resolves the script's dependencies and checks the plugin prints a valid
 SwiftBar menu with no dish reachable.
