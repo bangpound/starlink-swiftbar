@@ -101,12 +101,34 @@ class StateWordTests(unittest.TestCase):
 
 class PingSuccessPctTests(unittest.TestCase):
     def test_computes_mean(self):
-        hist = {"pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]}
+        # MessageToDict renders the uint64 sample counter as a string.
+        hist = {"current": "4", "pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]}
         self.assertEqual(plugin.ping_success_pct(hist), 75.0)
 
     def test_none_when_empty(self):
         self.assertIsNone(plugin.ping_success_pct({}))
         self.assertIsNone(plugin.ping_success_pct({"pop_ping_drop_rate": []}))
+
+    def test_ignores_unfilled_slots_after_reboot(self):
+        # Only 2 samples taken so far; the trailing zeros are unwritten slots,
+        # not 0%-drop samples.
+        hist = {"current": "2", "pop_ping_drop_rate": [0.5, 0.5, 0.0, 0.0]}
+        self.assertEqual(plugin.ping_success_pct(hist), 50.0)
+
+    def test_none_when_no_samples_taken(self):
+        # current == 0 is omitted by MessageToDict; the buffer is all unwritten.
+        hist = {"pop_ping_drop_rate": [0.0] * 900}
+        self.assertIsNone(plugin.ping_success_pct(hist))
+
+    def test_uses_only_last_15_minutes_of_longer_buffer(self):
+        # 1000-slot ring, 1100 samples taken: sample i lives at i % 1000.
+        # The last 900 samples (200..1099) occupy slots 200..999 and 0..99;
+        # slots 100..199 still hold samples 100..199, which are too old.
+        drops = [0.0] * 1000
+        for slot in range(100, 200):
+            drops[slot] = 1.0
+        hist = {"current": "1100", "pop_ping_drop_rate": drops}
+        self.assertEqual(plugin.ping_success_pct(hist), 100.0)
 
 
 class RenderTests(unittest.TestCase):

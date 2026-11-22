@@ -97,25 +97,35 @@ def state_word(status):
 STATE_DOTS = {"#3cb371": "🟢", "orange": "🟠", "red": "🔴"}
 
 
+WINDOW_S = 15 * 60  # history samples are 1/s
+
+
 def ping_success_pct(history):
     """15-minute ping success rate (%) from a get_history dict, or None.
 
-    The dish keeps its own ~900-sample (15 min at 1/s) ring buffer of
-    per-second ping drop rates, so no state needs to be stored locally.
-    Success = 1 - mean(drop); the mean is order-independent, so the whole
-    buffer can be averaged without ring-buffer index math.
+    The dish keeps its own ring buffer of per-second ping drop rates, so no
+    state needs to be stored locally. ``current`` is the total number of
+    samples ever taken; sample ``i`` lives at slot ``i % len(buffer)``. Only
+    the most recent ``min(current, len, 900)`` samples are averaged, so
+    unwritten slots after a reboot and anything older than 15 minutes in a
+    longer buffer are ignored. Success = 1 - mean(drop).
 
-    >>> ping_success_pct({"pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]})
+    >>> ping_success_pct({"current": "4",
+    ...                   "pop_ping_drop_rate": [0.0, 0.0, 0.5, 0.5]})
     75.0
     >>> ping_success_pct({}) is None
     True
-    >>> ping_success_pct({"pop_ping_drop_rate": []}) is None
+    >>> ping_success_pct({"current": "3", "pop_ping_drop_rate": []}) is None
     True
     """
     drops = history.get("pop_ping_drop_rate") or []
-    if not drops:
+    # MessageToDict renders uint64 as a string and omits it when zero.
+    current = int(history.get("current", 0))
+    count = min(current, len(drops), WINDOW_S)
+    if count == 0:
         return None
-    return (1.0 - sum(drops) / len(drops)) * 100.0
+    recent = [drops[(current - k) % len(drops)] for k in range(1, count + 1)]
+    return (1.0 - sum(recent) / count) * 100.0
 
 
 def _actions():
