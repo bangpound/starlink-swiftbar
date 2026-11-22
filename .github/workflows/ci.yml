@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUFF_VERSION: "0.17.6"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uvx "ruff@${RUFF_VERSION}" check --output-format=github .
+
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Script metadata declares requires-python >= 3.11.
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # Tests are stdlib-only (unittest + doctests) and the plugin's network
+      # imports are lazy, so no dependencies are installed here.
+      - run: uv run --no-project --python ${{ matrix.python }} python -m unittest discover -s tests -v
+
+  smoke:
+    name: Plugin smoke run (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # Resolves the inline script dependencies (grpcio, yagrc) the way SwiftBar
+      # would, then runs the plugin end to end. No dish is reachable from the
+      # runner, so it must exit 0 and print a SwiftBar menu (unreachable or
+      # error state) rather than a traceback.
+      - name: Run plugin
+        run: |
+          set -euo pipefail
+          out="$(uv run --script starlink.30s.py)"
+          printf '%s\n' "$out"
+          first="$(printf '%s\n' "$out" | head -n 1)"
+          case "$first" in
+            "🛰"*) ;;
+            *) echo "::error::unexpected menu-bar line: $first"; exit 1 ;;
+          esac
+          printf '%s\n' "$out" | grep -qx -- "---" || { echo "::error::no dropdown separator"; exit 1; }
+          if printf '%s\n' "$out" | grep -q "Traceback"; then
+            echo "::error::traceback in plugin output"; exit 1
+          fi
