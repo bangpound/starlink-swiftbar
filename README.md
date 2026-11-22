@@ -39,7 +39,12 @@ third-party test runner. The plugin's network imports are lazy, so the tests
 run without `grpcio`/`yagrc` installed and without a reachable dish:
 
 ```bash
-python3 -m unittest discover -s tests -v   # unit tests + doctests (no dish needed)
-uv run ./starlink.30s.py                   # render once against the live dish
-uv run ./starlink.30s.py --debug           # dump the raw parsed status JSON
+uv run --no-project python -m unittest discover -s tests -v   # unit tests + doctests (no dish needed)
+uv run ./starlink.30s.py                                       # render once against the live dish
+uv run ./starlink.30s.py --debug                               # dump the raw parsed status JSON
 ```
+
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull
+request: `ruff check`, the test suite on Python 3.11–3.15 (ARM Linux), and a macOS arm64 smoke run
+that resolves the script's dependencies and checks the plugin prints a valid
+SwiftBar menu with no dish reachable.

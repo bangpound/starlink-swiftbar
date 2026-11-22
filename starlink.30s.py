@@ -259,7 +259,7 @@ def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     try:
         status = fetch_status()
-    except Exception as exc:  # never leak a traceback to the menu bar
+    except Exception as exc:  # noqa: BLE001 -- never leak a traceback to the menu bar
         print(render(None, error=error_text(exc)))
         return
     if "--debug" in argv:

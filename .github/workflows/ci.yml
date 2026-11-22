@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUFF_VERSION: "0.17.6"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
+        with:
+          # Installs no packages (stdlib tests, single ruff binary).
+          enable-cache: false
+      - run: uvx "ruff@${RUFF_VERSION}" check --output-format=github .
+
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-26.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        # Script metadata declares requires-python >= 3.11.
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
+        with:
+          # Installs no packages (stdlib tests, single ruff binary).
+          enable-cache: false
+      # Tests are stdlib-only (unittest + doctests) and the plugin's network
+      # imports are lazy, so no dependencies are installed here.
+      - run: uv run --no-project --python ${{ matrix.python }} python -m unittest discover -s tests -v
+
+  smoke:
+    name: Plugin smoke run (macOS arm64)
+    runs-on: macos-26  # Apple silicon (arm64)
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
+        with:
+          # No pyproject/lockfile: the deps live in the script's inline
+          # metadata, so key the cache on the script itself.
+          cache-dependency-glob: starlink.30s.py
+      # Resolves the inline script dependencies (grpcio, yagrc) the way SwiftBar
+      # would, then runs the plugin end to end. No dish is reachable from the
+      # runner, so it must exit 0 and print a SwiftBar menu (unreachable or
+      # error state) rather than a traceback.
+      - name: Run plugin
+        run: |
+          set -euo pipefail
+          out="$(uv run --script starlink.30s.py)"
+          printf '%s\n' "$out"
+          first="$(printf '%s\n' "$out" | head -n 1)"
+          case "$first" in
+            "🛰"*) ;;
+            *) echo "::error::unexpected menu-bar line: $first"; exit 1 ;;
+          esac
+          printf '%s\n' "$out" | grep -qx -- "---" || { echo "::error::no dropdown separator"; exit 1; }
+          if printf '%s\n' "$out" | grep -q "Traceback"; then
+            echo "::error::traceback in plugin output"; exit 1
+          fi
