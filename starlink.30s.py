@@ -221,12 +221,36 @@ def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
     return status
 
 
+ERROR_TEXT_MAX = 120
+
+
+def error_text(exc) -> str:
+    """One-line, SwiftBar-safe description of an exception.
+
+    gRPC errors expose a clean ``details()``; their ``str()`` is a multi-line
+    repr. Newlines would become extra menu items and ``|`` would start
+    SwiftBar parameters, so keep the first line, neutralize ``|`` and cap
+    the length.
+
+    >>> error_text(ValueError("bad\\nthings | color=green"))
+    'bad'
+    """
+    details = getattr(exc, "details", None)
+    text = (details() if callable(details) else None) or str(exc)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    text = lines[0] if lines else type(exc).__name__
+    text = text.replace("|", "¦")
+    if len(text) > ERROR_TEXT_MAX:
+        text = text[:ERROR_TEXT_MAX - 1] + "…"
+    return text
+
+
 def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     try:
         status = fetch_status()
     except Exception as exc:  # never leak a traceback to the menu bar
-        print(render(None, error=str(exc)))
+        print(render(None, error=error_text(exc)))
         return
     if "--debug" in argv:
         import json
