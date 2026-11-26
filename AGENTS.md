@@ -47,6 +47,49 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Build & Test
+
+```bash
+uv run --no-project python -m unittest discover -s tests -v   # unit tests + doctests; no deps, no dish
+uvx ruff@0.17.6 check .                                        # lint (same pin as CI)
+uv run ./starlink.30s.py                                       # render the menu once
+uv run ./starlink.30s.py --debug                               # raw status + history JSON (needs the dish)
+uv lock --script starlink.30s.py --upgrade                     # bump pinned grpcio/yagrc
+```
+
+CI (`.github/workflows/ci.yml`): ruff, tests on Python 3.11–3.15 (ARM Linux),
+and a macOS smoke run of the plugin with `--locked`. The dish
+(`192.168.100.1:9200`) is only reachable on the Starlink LAN; nothing in tests
+or CI talks to it.
+
+## Architecture Overview
+
+One self-contained SwiftBar plugin, `starlink.30s.py` (a `uv` script with
+inline metadata; `.30s.` is SwiftBar's refresh interval). `fetch_status()`
+talks gRPC to the dish via server reflection (`yagrc`): `get_status`, plus
+best-effort `get_history` for the 15-minute ping success rate. `render()` turns
+the parsed dict into SwiftBar menu text. `main(argv) -> int` parses options
+(argparse) and returns the exit code. `tests/test_starlink.py` loads the
+dotted filename with `importlib` and also runs the module's doctests.
+
+## Conventions & Patterns
+
+- **Menu mode must exit 0**, even for error/unreachable menus: on a non-zero
+  exit SwiftBar discards stdout and shows its own ⚠ instead
+  (swiftbar/SwiftBar `RunScript.swift`, `MenuBarItem.swift`). Report failures
+  in the menu itself, via `error_text()` (one line, no `|`).
+- **Keep network imports lazy** (inside `fetch_status`), so tests need neither
+  `grpcio` nor a dish. Mock only `fetch_status`, the network boundary.
+- **`MessageToDict` quirks:** 64-bit ints arrive as strings, and zero or empty
+  fields are omitted, so always read with `.get()` and defaults.
+- History is a ring buffer: use `current` (total samples) to pick the valid,
+  most recent samples. Never average the whole array.
+- Tests are stdlib `unittest` only; TDD (red first). Keep dependencies in the
+  script header and refresh `starlink.30s.py.lock` when they change.
+- Actions are pinned to commit SHAs with a `# vX.Y.Z` comment (Dependabot
+  bumps them). actionlint doesn't know `ubuntu-26.04-arm` yet, so pass
+  `-ignore 'label "ubuntu-26.04-arm" is unknown'`.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 
