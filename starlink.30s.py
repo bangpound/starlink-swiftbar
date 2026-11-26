@@ -211,7 +211,12 @@ def render(status, error=None) -> str:
     return "\n".join(lines)
 
 
-def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
+def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S, keep_history=False):
+    """Dish status dict (from get_status), or None if the dish is unreachable.
+
+    Adds ``ping_success_15m`` from get_history; with ``keep_history`` the raw
+    parsed history is also attached as ``dish_get_history`` (for --debug).
+    """
     import grpc
     from google.protobuf.json_format import MessageToDict
     from yagrc import reflector as yagrc_reflector
@@ -246,6 +251,8 @@ def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
             hist_response, preserving_proto_field_name=True
         ).get("dish_get_history", {})
         status["ping_success_15m"] = ping_success_pct(history)
+        if keep_history:
+            status["dish_get_history"] = history
     return status
 
 
@@ -275,14 +282,16 @@ def error_text(exc) -> str:
 
 def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else argv
+    if "--debug" in argv:
+        # Debugging wants the real traceback and the raw history, not the
+        # menu-bar rendering.
+        import json
+        print(json.dumps(fetch_status(keep_history=True), indent=2))
+        return
     try:
         status = fetch_status()
     except Exception as exc:  # noqa: BLE001 -- never leak a traceback to the menu bar
         print(render(None, error=error_text(exc)))
-        return
-    if "--debug" in argv:
-        import json
-        print(json.dumps(status, indent=2))
         return
     print(render(status))
 

@@ -12,6 +12,7 @@ import contextlib
 import doctest
 import importlib.util
 import io
+import json
 import pathlib
 import unittest
 from unittest import mock
@@ -256,6 +257,34 @@ class MainTests(unittest.TestCase):
         self.assertTrue(lines[2].startswith("Error: line one"))
         self.assertTrue(lines[2].endswith("| color=red"))
         self.assertNotIn("line two", out.getvalue())
+
+
+class DebugModeTests(unittest.TestCase):
+    def run_main(self, fetch, argv):
+        out = io.StringIO()
+        with mock.patch.object(plugin, "fetch_status", fetch), \
+                contextlib.redirect_stdout(out):
+            plugin.main(argv)
+        return out.getvalue()
+
+    def test_debug_lets_fetch_errors_propagate(self):
+        def failing_fetch(**kwargs):
+            raise RuntimeError("boom")
+        with self.assertRaises(RuntimeError):
+            self.run_main(failing_fetch, ["--debug"])
+
+    def test_debug_dumps_status_with_raw_history(self):
+        calls = []
+
+        def fetch(**kwargs):
+            calls.append(kwargs)
+            status = {"alerts": {}}
+            if kwargs.get("keep_history"):
+                status["dish_get_history"] = {"current": "1"}
+            return status
+        dumped = json.loads(self.run_main(fetch, ["--debug"]))
+        self.assertEqual(calls, [{"keep_history": True}])
+        self.assertEqual(dumped["dish_get_history"], {"current": "1"})
 
 
 def load_tests(loader, tests, ignore):
