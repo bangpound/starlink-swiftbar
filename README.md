@@ -51,7 +51,13 @@ run without `grpcio`/`yagrc` installed and without a reachable dish:
 uv run --no-project python -m unittest discover -s tests -v   # unit tests + doctests (no dish needed)
 uv run ./starlink.30s.py                                       # render once against the live dish
 uv run ./starlink.30s.py --debug                               # raw status + history JSON; errors raise
+uv run ./starlink.30s.py --help                                # options and exit codes
 ```
+
+Exit status: menu mode always exits 0 once it has printed a menu (including
+the error and unreachable menus), because SwiftBar treats a non-zero exit as a
+plugin failure. `--debug` exits 1 when the dish is unreachable; invalid options
+exit 2.
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull
 request: `ruff check`, the test suite on Python 3.11–3.15 (ARM Linux), and a macOS arm64 smoke run
