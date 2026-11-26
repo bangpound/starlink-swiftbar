@@ -13,6 +13,8 @@
 # <swiftbar.hideAbout>false</swiftbar.hideAbout>
 """SwiftBar plugin: Starlink dish status in the macOS menu bar."""
 
+import argparse
+import pathlib
 import sys
 
 DISH_ADDR = "192.168.100.1:9200"
@@ -284,21 +286,51 @@ def error_text(exc) -> str:
     return text
 
 
-def main(argv=None) -> None:
-    argv = sys.argv[1:] if argv is None else argv
-    if "--debug" in argv:
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=pathlib.Path(__file__).name,
+        description=(
+            "SwiftBar plugin: Starlink dish status in the macOS menu bar. "
+            "With no options, prints the SwiftBar menu."
+        ),
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="print the raw dish status and history as JSON instead of the "
+        "menu; errors raise with a traceback, and an unreachable dish exits 1",
+    )
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    """Run the plugin with command-line arguments ``argv``; return exit code.
+
+    Menu mode always exits 0 once a menu is printed, including the error and
+    unreachable menus: SwiftBar treats a non-zero exit as a plugin failure.
+    """
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as exc:  # --help (0) or a usage error (2)
+        return exc.code
+    if args.debug:
         # Debugging wants the real traceback and the raw history, not the
         # menu-bar rendering.
         import json
-        print(json.dumps(fetch_status(keep_history=True), indent=2))
-        return
+        status = fetch_status(keep_history=True)
+        if status is None:
+            print(f"dish not reachable at {DISH_ADDR}", file=sys.stderr)
+            return 1
+        print(json.dumps(status, indent=2))
+        return 0
     try:
         status = fetch_status()
     except Exception as exc:  # noqa: BLE001 -- never leak a traceback to the menu bar
         print(render(None, error=error_text(exc)))
-        return
+        return 0
     print(render(status))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))
