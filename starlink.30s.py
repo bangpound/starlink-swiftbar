@@ -13,6 +13,8 @@
 # <swiftbar.hideAbout>false</swiftbar.hideAbout>
 """SwiftBar plugin: Starlink dish status in the macOS menu bar."""
 
+import argparse
+import pathlib
 import sys
 
 DISH_ADDR = "192.168.100.1:9200"
@@ -284,13 +286,34 @@ def error_text(exc) -> str:
     return text
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=pathlib.Path(__file__).name,
+        description=(
+            "SwiftBar plugin: Starlink dish status in the macOS menu bar. "
+            "With no options, prints the SwiftBar menu."
+        ),
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="print the raw dish status and history as JSON instead of the "
+        "menu; errors raise with a traceback, and an unreachable dish exits 1",
+    )
+    return parser
+
+
 def main(argv: list[str]) -> int:
     """Run the plugin with command-line arguments ``argv``; return exit code.
 
     Menu mode always exits 0 once a menu is printed, including the error and
     unreachable menus: SwiftBar treats a non-zero exit as a plugin failure.
     """
-    if "--debug" in argv:
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as exc:  # --help (0) or a usage error (2)
+        return exc.code
+    if args.debug:
         # Debugging wants the real traceback and the raw history, not the
         # menu-bar rendering.
         import json

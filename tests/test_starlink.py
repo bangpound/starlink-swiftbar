@@ -14,6 +14,8 @@ import importlib.util
 import io
 import json
 import pathlib
+import subprocess
+import sys
 import unittest
 from unittest import mock
 
@@ -323,6 +325,43 @@ class DebugModeTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("not reachable", err)
+
+
+class ArgumentParsingTests(unittest.TestCase):
+    def fetch_must_not_run(self, **kwargs):
+        self.fail("fetch_status must not run")
+
+    def test_unknown_argument_is_usage_error(self):
+        code, out, err = run_main(["--bogus"], self.fetch_must_not_run)
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertIn("unrecognized arguments: --bogus", err)
+
+    def test_help_lists_debug_option(self):
+        code, out, _ = run_main(["--help"], self.fetch_must_not_run)
+        self.assertEqual(code, 0)
+        self.assertIn("usage:", out)
+        self.assertIn("--debug", out)
+
+
+class ScriptEntryPointTests(unittest.TestCase):
+    """Run the plugin file as a script: main()'s result is the exit status."""
+
+    def run_script(self, *args):
+        return subprocess.run(
+            [sys.executable, "-I", str(_PLUGIN), *args],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+
+    def test_help_exits_zero(self):
+        proc = self.run_script("--help")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("--debug", proc.stdout)
+
+    def test_usage_error_exits_two(self):
+        proc = self.run_script("--bogus")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("unrecognized arguments", proc.stderr)
 
 
 def load_tests(loader, tests, ignore):
