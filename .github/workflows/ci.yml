@@ -54,17 +54,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
         with:
-          # No pyproject/lockfile: the deps live in the script's inline
-          # metadata, so key the cache on the script itself.
-          cache-dependency-glob: starlink.30s.py
-      # Resolves the inline script dependencies (grpcio, yagrc) the way SwiftBar
-      # would, then runs the plugin end to end. No dish is reachable from the
+          # No pyproject: the deps live in the script's inline metadata and
+          # its lockfile, so key the cache on those.
+          cache-dependency-glob: |
+            starlink.30s.py
+            starlink.30s.py.lock
+      # Installs the locked script dependencies (grpcio, yagrc), failing if
+      # starlink.30s.py.lock is missing or stale, then runs the plugin end to end. No dish is reachable from the
       # runner, so it must exit 0 and print a SwiftBar menu (unreachable or
       # error state) rather than a traceback.
       - name: Run plugin
         run: |
           set -euo pipefail
-          out="$(uv run --script starlink.30s.py)"
+          out="$(uv run --locked --script starlink.30s.py)"
           printf '%s\n' "$out"
           first="$(printf '%s\n' "$out" | head -n 1)"
           case "$first" in
