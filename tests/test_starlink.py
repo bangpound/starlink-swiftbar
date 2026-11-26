@@ -258,6 +258,19 @@ class MainTests(unittest.TestCase):
         self.assertTrue(lines[2].endswith("| color=red"))
         self.assertNotIn("line two", out.getvalue())
 
+    def run_main(self, status):
+        out = io.StringIO()
+        with mock.patch.object(plugin, "fetch_status", lambda: status), \
+                contextlib.redirect_stdout(out):
+            plugin.main([])
+        return out.getvalue()
+
+    def test_unreachable_dish_renders_unreachable_menu(self):
+        self.assertEqual(self.run_main(None), plugin.render(None) + "\n")
+
+    def test_status_is_rendered(self):
+        self.assertEqual(self.run_main(HEALTHY), plugin.render(HEALTHY) + "\n")
+
 
 class DebugModeTests(unittest.TestCase):
     def run_main(self, fetch, argv):
