@@ -8,8 +8,13 @@ gRPC API at `192.168.100.1:9200`.
 - [SwiftBar](https://github.com/swiftbar/SwiftBar)
 - [`uv`](https://docs.astral.sh/uv/) (`brew install uv`)
 
-The plugin is a single `uv` script; `uv` resolves `grpcio` and `yagrc` on first
-run. Nothing is installed globally.
+The plugin is a single `uv` script; `uv` installs `grpcio` and `yagrc` on first
+run, at the versions pinned in `starlink.30s.py.lock`. Nothing is installed
+globally. To upgrade the pinned versions:
+
+```bash
+uv lock --script starlink.30s.py --upgrade
+```
 
 ## Install
 
