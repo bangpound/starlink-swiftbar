@@ -93,8 +93,9 @@ def state_word(status):
 
 # Menu-bar state is signalled by a colored dot emoji (legible on any menu-bar
 # background) rather than colored text, which uses the system default color so
-# it stays readable in light and dark menu bars.
-STATE_DOTS = {"#3cb371": "🟢", "orange": "🟠", "red": "🔴"}
+# it stays readable in light and dark menu bars. Keyed by state word so the
+# dropdown text color can change without affecting the dot.
+STATE_DOTS = {"Connected": "🟢", "Alert": "🟠", "Offline": "🔴", "Disabled": "🔴"}
 
 
 WINDOW_S = 15 * 60  # history samples are 1/s
@@ -154,7 +155,7 @@ def render(status, error=None) -> str:
         return "\n".join(lines)
 
     word, color = state_word(status)
-    dot = STATE_DOTS.get(color, "⚪️")
+    dot = STATE_DOTS[word]
     pct = status.get("ping_success_15m")
     lines.append(f"🛰 {dot} {pct:.1f}%" if pct is not None else f"🛰 {dot}")
     lines.append("---")

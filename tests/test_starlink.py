@@ -158,6 +158,13 @@ class RenderTests(unittest.TestCase):
         self.assertIn("⚠ Thermal throttle | color=orange", out)
         self.assertNotIn("Alerts: none", out)
 
+    def test_offline_and_disabled_show_red_dot(self):
+        for extra in ({"outage": {"cause": "NO_SCHEDULE"}},
+                      {"disablement_code": "NO_ACTIVE_ACCOUNT"}):
+            with self.subTest(extra=extra):
+                out = plugin.render(dict(HEALTHY, **extra))
+                self.assertEqual(out.splitlines()[0], "🛰 🔴 93.9%")
+
     def test_unreachable(self):
         out = plugin.render(None)
         lines = out.splitlines()
