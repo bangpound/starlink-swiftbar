@@ -243,48 +243,65 @@ class ErrorTextTests(unittest.TestCase):
         self.assertEqual(plugin.error_text(KeyError()), "KeyError")
 
 
+def run_main(argv, fetch):
+    """Run plugin.main(argv) with fetch_status (the network boundary) faked.
+
+    Returns (exit_code, stdout, stderr).
+    """
+    out, err = io.StringIO(), io.StringIO()
+    with mock.patch.object(plugin, "fetch_status", fetch), \
+            contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = plugin.main(argv)
+    return code, out.getvalue(), err.getvalue()
+
+
+def returning(status):
+    return lambda **kwargs: status
+
+
 class MainTests(unittest.TestCase):
     def test_fetch_error_renders_single_error_line(self):
-        def failing_fetch():
+        def failing_fetch(**kwargs):
             raise RuntimeError("line one | color=green\nline two")
-        out = io.StringIO()
-        with mock.patch.object(plugin, "fetch_status", failing_fetch), \
-                contextlib.redirect_stdout(out):
-            plugin.main([])
-        lines = out.getvalue().splitlines()
+        code, out, _ = run_main([], failing_fetch)
+        lines = out.splitlines()
         self.assertEqual(lines[0], "🛰 ⚠️")
         self.assertEqual(lines[2].count("|"), 1)
         self.assertTrue(lines[2].startswith("Error: line one"))
         self.assertTrue(lines[2].endswith("| color=red"))
-        self.assertNotIn("line two", out.getvalue())
-
-    def run_main(self, status):
-        out = io.StringIO()
-        with mock.patch.object(plugin, "fetch_status", lambda: status), \
-                contextlib.redirect_stdout(out):
-            plugin.main([])
-        return out.getvalue()
+        self.assertNotIn("line two", out)
+        # The error is shown in the menu; a non-zero exit would make SwiftBar
+        # replace it with its own plugin-failure display.
+        self.assertEqual(code, 0)
 
     def test_unreachable_dish_renders_unreachable_menu(self):
-        self.assertEqual(self.run_main(None), plugin.render(None) + "\n")
+        code, out, _ = run_main([], returning(None))
+        self.assertEqual(out, plugin.render(None) + "\n")
+        self.assertEqual(code, 0)
 
     def test_status_is_rendered(self):
-        self.assertEqual(self.run_main(HEALTHY), plugin.render(HEALTHY) + "\n")
+        code, out, _ = run_main([], returning(HEALTHY))
+        self.assertEqual(out, plugin.render(HEALTHY) + "\n")
+        self.assertEqual(code, 0)
+
+    def test_argv_must_be_passed(self):
+        with self.assertRaises(TypeError):
+            plugin.main()
+
+    def test_ignores_process_argv(self):
+        # Only the argv argument counts, never sys.argv.
+        with mock.patch.object(plugin.sys, "argv", ["starlink", "--debug"]):
+            code, out, _ = run_main([], returning(HEALTHY))
+        self.assertEqual(out, plugin.render(HEALTHY) + "\n")
+        self.assertEqual(code, 0)
 
 
 class DebugModeTests(unittest.TestCase):
-    def run_main(self, fetch, argv):
-        out = io.StringIO()
-        with mock.patch.object(plugin, "fetch_status", fetch), \
-                contextlib.redirect_stdout(out):
-            plugin.main(argv)
-        return out.getvalue()
-
     def test_debug_lets_fetch_errors_propagate(self):
         def failing_fetch(**kwargs):
             raise RuntimeError("boom")
         with self.assertRaises(RuntimeError):
-            self.run_main(failing_fetch, ["--debug"])
+            run_main(["--debug"], failing_fetch)
 
     def test_debug_dumps_status_with_raw_history(self):
         calls = []
@@ -295,9 +312,17 @@ class DebugModeTests(unittest.TestCase):
             if kwargs.get("keep_history"):
                 status["dish_get_history"] = {"current": "1"}
             return status
-        dumped = json.loads(self.run_main(fetch, ["--debug"]))
+        code, out, _ = run_main(["--debug"], fetch)
+        dumped = json.loads(out)
         self.assertEqual(calls, [{"keep_history": True}])
         self.assertEqual(dumped["dish_get_history"], {"current": "1"})
+        self.assertEqual(code, 0)
+
+    def test_debug_unreachable_exits_nonzero(self):
+        code, out, err = run_main(["--debug"], returning(None))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("not reachable", err)
 
 
 def load_tests(loader, tests, ignore):
