@@ -223,6 +223,10 @@ def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S, keep_history=False):
 
     channel = grpc.insecure_channel(addr)
     try:
+        # Reflection uses yagrc's own QUERY_TIMEOUT (10 s), not `timeout`, so
+        # the worst case is ~10 + 2 * timeout = 18 s: still under the 30 s
+        # refresh. Off the Starlink LAN the connect usually fails fast with
+        # UNAVAILABLE instead.
         reflector = yagrc_reflector.GrpcReflectionClient()
         reflector.load_protocols(channel, symbols=["SpaceX.API.Device.Device"])
         stub_class = reflector.service_stub_class("SpaceX.API.Device.Device")

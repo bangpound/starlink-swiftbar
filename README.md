@@ -18,16 +18,25 @@ chmod +x starlink.30s.py
 ln -sf "$(pwd)/starlink.30s.py" ~/Applications/SwiftBar/starlink.30s.py
 ```
 
+The shebang is `#!/opt/homebrew/bin/uv run`, an absolute path because
+SwiftBar doesn't launch plugins with your shell's `PATH`. That's where
+Homebrew puts `uv` on Apple silicon; if yours is elsewhere (Intel Homebrew uses
+`/usr/local/bin/uv`; the standalone installer uses `~/.local/bin/uv`), edit the
+first line to match `which uv`.
+
 Then Refresh All in SwiftBar. The `.30s.` in the filename sets a 30-second
 refresh; rename (e.g. `starlink.1m.py`) to change it.
 
 ## Menu bar
 
 Shows the dish's own 15-minute ping success rate (e.g. `🛰 🟢 95.3%`), with a
-colored dot for current state: 🟢 connected, 🟠 alert (dish-reported alerts),
+colored dot for current state: 🟢 connected, 🟠 alert (dish-reported faults),
 🔴 offline (active outage) or disabled (account/service), ⚪️ not on the
 Starlink LAN. The dropdown shows the state word, ping success (15m), latency,
 drop rate, down/up throughput, obstruction %, uptime, and any active alerts.
+Routine conditions (snow-melt heating, power-save idle, install pending,
+software-update progress) are listed under **Info** without turning the dot
+orange.
 
 The 15-minute ping success comes from the dish's own history ring buffer
 (`get_history`), so nothing is stored locally.
@@ -41,7 +50,7 @@ run without `grpcio`/`yagrc` installed and without a reachable dish:
 ```bash
 uv run --no-project python -m unittest discover -s tests -v   # unit tests + doctests (no dish needed)
 uv run ./starlink.30s.py                                       # render once against the live dish
-uv run ./starlink.30s.py --debug                               # dump the raw parsed status JSON
+uv run ./starlink.30s.py --debug                               # raw status + history JSON; errors raise
 ```
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull
