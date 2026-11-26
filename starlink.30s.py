@@ -55,10 +55,7 @@ ALERT_LABELS = {
     "slow_ethernet_speeds": "Slow Ethernet",
     "slow_ethernet_speeds_100": "Ethernet limited to 100M",
     "roaming": "Roaming",
-    "install_pending": "Install pending",
-    "is_heating": "Heating (snow melt)",
     "power_supply_thermal_throttle": "Power supply throttle",
-    "is_power_save_idle": "Power save idle",
     "dbf_telem_stale": "Telemetry stale",
     "low_motor_current": "Low motor current",
     "lower_signal_than_predicted": "Signal lower than predicted",
@@ -70,9 +67,23 @@ ALERT_LABELS = {
 }
 
 
+# Dish alert flags that describe normal operation rather than a fault: shown
+# in the dropdown, but they don't put the menu bar into the Alert state.
+INFO_LABELS = {
+    "install_pending": "Install pending",
+    "is_heating": "Heating (snow melt)",
+    "is_power_save_idle": "Power save idle",
+}
+
+
 def active_alerts(status) -> list[str]:
     alerts = status.get("alerts", {})
-    out = [label for key, label in ALERT_LABELS.items() if alerts.get(key)]
+    return [label for key, label in ALERT_LABELS.items() if alerts.get(key)]
+
+
+def info_notices(status) -> list[str]:
+    alerts = status.get("alerts", {})
+    out = [label for key, label in INFO_LABELS.items() if alerts.get(key)]
     if status.get("swupdate_reboot_ready"):
         out.append("Software update ready (reboot)")
     sw = status.get("software_update_state", "IDLE")
@@ -189,6 +200,12 @@ def render(status, error=None) -> str:
             lines.append(f"⚠ {alert} | color=orange")
     else:
         lines.append("Alerts: none")
+
+    notices = info_notices(status)
+    if notices:
+        lines.append("Info:")
+        for notice in notices:
+            lines.append(f"ℹ {notice}")
 
     lines.extend(_actions())
     return "\n".join(lines)

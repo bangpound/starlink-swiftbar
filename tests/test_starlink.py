@@ -70,17 +70,31 @@ class ActiveAlertsTests(unittest.TestCase):
         self.assertIn("Roaming", result)
         self.assertEqual(len(result), 2)
 
+    def test_routine_conditions_are_not_alerts(self):
+        status = {"alerts": {"is_heating": True, "install_pending": True,
+                             "is_power_save_idle": True},
+                  "software_update_state": "DOWNLOADING",
+                  "swupdate_reboot_ready": True}
+        self.assertEqual(plugin.active_alerts(status), [])
+
+
+class InfoNoticesTests(unittest.TestCase):
+    def test_none_when_healthy(self):
+        self.assertEqual(plugin.info_notices(HEALTHY), [])
+
+    def test_lists_routine_alert_flags(self):
+        status = {"alerts": {"is_heating": True, "thermal_throttle": True}}
+        self.assertEqual(plugin.info_notices(status), ["Heating (snow melt)"])
+
     def test_includes_pending_software_update(self):
         status = {"alerts": {}, "software_update_state": "DOWNLOADING"}
-        self.assertTrue(
-            any("Software update" in a for a in plugin.active_alerts(status))
-        )
+        self.assertIn("Software update: DOWNLOADING",
+                      plugin.info_notices(status))
 
     def test_swupdate_reboot_ready(self):
         status = {"alerts": {}, "swupdate_reboot_ready": True}
-        self.assertIn(
-            "Software update ready (reboot)", plugin.active_alerts(status)
-        )
+        self.assertIn("Software update ready (reboot)",
+                      plugin.info_notices(status))
 
 
 class StateWordTests(unittest.TestCase):
@@ -91,6 +105,11 @@ class StateWordTests(unittest.TestCase):
         status = {"alerts": {"thermal_throttle": True},
                   "disablement_code": "OKAY"}
         self.assertEqual(plugin.state_word(status), ("Alert", "orange"))
+
+    def test_connected_with_only_info_notices(self):
+        status = dict(HEALTHY, alerts={"is_heating": True},
+                      software_update_state="DOWNLOADING")
+        self.assertEqual(plugin.state_word(status), ("Connected", "#3cb371"))
 
     def test_disabled(self):
         status = {"alerts": {}, "disablement_code": "NO_ACTIVE_ACCOUNT"}
@@ -157,6 +176,18 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Alert | color=orange", out)
         self.assertIn("⚠ Thermal throttle | color=orange", out)
         self.assertNotIn("Alerts: none", out)
+
+    def test_info_notices_listed_without_alert_state(self):
+        status = dict(HEALTHY, alerts={"is_heating": True})
+        out = plugin.render(status)
+        self.assertEqual(out.splitlines()[0], "🛰 🟢 93.9%")
+        self.assertIn("Alerts: none", out)
+        self.assertIn("Info:", out)
+        self.assertIn("ℹ Heating (snow melt)", out)
+        self.assertNotIn("Heating (snow melt) | color=orange", out)
+
+    def test_no_info_section_when_nothing_to_report(self):
+        self.assertNotIn("Info:", plugin.render(HEALTHY))
 
     def test_offline_and_disabled_show_red_dot(self):
         for extra in ({"outage": {"cause": "NO_SCHEDULE"}},
