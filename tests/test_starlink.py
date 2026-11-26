@@ -12,6 +12,7 @@ import contextlib
 import doctest
 import importlib.util
 import io
+import json
 import pathlib
 import unittest
 from unittest import mock
@@ -70,17 +71,31 @@ class ActiveAlertsTests(unittest.TestCase):
         self.assertIn("Roaming", result)
         self.assertEqual(len(result), 2)
 
+    def test_routine_conditions_are_not_alerts(self):
+        status = {"alerts": {"is_heating": True, "install_pending": True,
+                             "is_power_save_idle": True},
+                  "software_update_state": "DOWNLOADING",
+                  "swupdate_reboot_ready": True}
+        self.assertEqual(plugin.active_alerts(status), [])
+
+
+class InfoNoticesTests(unittest.TestCase):
+    def test_none_when_healthy(self):
+        self.assertEqual(plugin.info_notices(HEALTHY), [])
+
+    def test_lists_routine_alert_flags(self):
+        status = {"alerts": {"is_heating": True, "thermal_throttle": True}}
+        self.assertEqual(plugin.info_notices(status), ["Heating (snow melt)"])
+
     def test_includes_pending_software_update(self):
         status = {"alerts": {}, "software_update_state": "DOWNLOADING"}
-        self.assertTrue(
-            any("Software update" in a for a in plugin.active_alerts(status))
-        )
+        self.assertIn("Software update: DOWNLOADING",
+                      plugin.info_notices(status))
 
     def test_swupdate_reboot_ready(self):
         status = {"alerts": {}, "swupdate_reboot_ready": True}
-        self.assertIn(
-            "Software update ready (reboot)", plugin.active_alerts(status)
-        )
+        self.assertIn("Software update ready (reboot)",
+                      plugin.info_notices(status))
 
 
 class StateWordTests(unittest.TestCase):
@@ -91,6 +106,11 @@ class StateWordTests(unittest.TestCase):
         status = {"alerts": {"thermal_throttle": True},
                   "disablement_code": "OKAY"}
         self.assertEqual(plugin.state_word(status), ("Alert", "orange"))
+
+    def test_connected_with_only_info_notices(self):
+        status = dict(HEALTHY, alerts={"is_heating": True},
+                      software_update_state="DOWNLOADING")
+        self.assertEqual(plugin.state_word(status), ("Connected", "#3cb371"))
 
     def test_disabled(self):
         status = {"alerts": {}, "disablement_code": "NO_ACTIVE_ACCOUNT"}
@@ -158,6 +178,25 @@ class RenderTests(unittest.TestCase):
         self.assertIn("⚠ Thermal throttle | color=orange", out)
         self.assertNotIn("Alerts: none", out)
 
+    def test_info_notices_listed_without_alert_state(self):
+        status = dict(HEALTHY, alerts={"is_heating": True})
+        out = plugin.render(status)
+        self.assertEqual(out.splitlines()[0], "🛰 🟢 93.9%")
+        self.assertIn("Alerts: none", out)
+        self.assertIn("Info:", out)
+        self.assertIn("ℹ Heating (snow melt)", out)
+        self.assertNotIn("Heating (snow melt) | color=orange", out)
+
+    def test_no_info_section_when_nothing_to_report(self):
+        self.assertNotIn("Info:", plugin.render(HEALTHY))
+
+    def test_offline_and_disabled_show_red_dot(self):
+        for extra in ({"outage": {"cause": "NO_SCHEDULE"}},
+                      {"disablement_code": "NO_ACTIVE_ACCOUNT"}):
+            with self.subTest(extra=extra):
+                out = plugin.render(dict(HEALTHY, **extra))
+                self.assertEqual(out.splitlines()[0], "🛰 🔴 93.9%")
+
     def test_unreachable(self):
         out = plugin.render(None)
         lines = out.splitlines()
@@ -218,6 +257,47 @@ class MainTests(unittest.TestCase):
         self.assertTrue(lines[2].startswith("Error: line one"))
         self.assertTrue(lines[2].endswith("| color=red"))
         self.assertNotIn("line two", out.getvalue())
+
+    def run_main(self, status):
+        out = io.StringIO()
+        with mock.patch.object(plugin, "fetch_status", lambda: status), \
+                contextlib.redirect_stdout(out):
+            plugin.main([])
+        return out.getvalue()
+
+    def test_unreachable_dish_renders_unreachable_menu(self):
+        self.assertEqual(self.run_main(None), plugin.render(None) + "\n")
+
+    def test_status_is_rendered(self):
+        self.assertEqual(self.run_main(HEALTHY), plugin.render(HEALTHY) + "\n")
+
+
+class DebugModeTests(unittest.TestCase):
+    def run_main(self, fetch, argv):
+        out = io.StringIO()
+        with mock.patch.object(plugin, "fetch_status", fetch), \
+                contextlib.redirect_stdout(out):
+            plugin.main(argv)
+        return out.getvalue()
+
+    def test_debug_lets_fetch_errors_propagate(self):
+        def failing_fetch(**kwargs):
+            raise RuntimeError("boom")
+        with self.assertRaises(RuntimeError):
+            self.run_main(failing_fetch, ["--debug"])
+
+    def test_debug_dumps_status_with_raw_history(self):
+        calls = []
+
+        def fetch(**kwargs):
+            calls.append(kwargs)
+            status = {"alerts": {}}
+            if kwargs.get("keep_history"):
+                status["dish_get_history"] = {"current": "1"}
+            return status
+        dumped = json.loads(self.run_main(fetch, ["--debug"]))
+        self.assertEqual(calls, [{"keep_history": True}])
+        self.assertEqual(dumped["dish_get_history"], {"current": "1"})
 
 
 def load_tests(loader, tests, ignore):

@@ -55,10 +55,7 @@ ALERT_LABELS = {
     "slow_ethernet_speeds": "Slow Ethernet",
     "slow_ethernet_speeds_100": "Ethernet limited to 100M",
     "roaming": "Roaming",
-    "install_pending": "Install pending",
-    "is_heating": "Heating (snow melt)",
     "power_supply_thermal_throttle": "Power supply throttle",
-    "is_power_save_idle": "Power save idle",
     "dbf_telem_stale": "Telemetry stale",
     "low_motor_current": "Low motor current",
     "lower_signal_than_predicted": "Signal lower than predicted",
@@ -70,9 +67,23 @@ ALERT_LABELS = {
 }
 
 
+# Dish alert flags that describe normal operation rather than a fault: shown
+# in the dropdown, but they don't put the menu bar into the Alert state.
+INFO_LABELS = {
+    "install_pending": "Install pending",
+    "is_heating": "Heating (snow melt)",
+    "is_power_save_idle": "Power save idle",
+}
+
+
 def active_alerts(status) -> list[str]:
     alerts = status.get("alerts", {})
-    out = [label for key, label in ALERT_LABELS.items() if alerts.get(key)]
+    return [label for key, label in ALERT_LABELS.items() if alerts.get(key)]
+
+
+def info_notices(status) -> list[str]:
+    alerts = status.get("alerts", {})
+    out = [label for key, label in INFO_LABELS.items() if alerts.get(key)]
     if status.get("swupdate_reboot_ready"):
         out.append("Software update ready (reboot)")
     sw = status.get("software_update_state", "IDLE")
@@ -93,8 +104,9 @@ def state_word(status):
 
 # Menu-bar state is signalled by a colored dot emoji (legible on any menu-bar
 # background) rather than colored text, which uses the system default color so
-# it stays readable in light and dark menu bars.
-STATE_DOTS = {"#3cb371": "🟢", "orange": "🟠", "red": "🔴"}
+# it stays readable in light and dark menu bars. Keyed by state word so the
+# dropdown text color can change without affecting the dot.
+STATE_DOTS = {"Connected": "🟢", "Alert": "🟠", "Offline": "🔴", "Disabled": "🔴"}
 
 
 WINDOW_S = 15 * 60  # history samples are 1/s
@@ -154,7 +166,7 @@ def render(status, error=None) -> str:
         return "\n".join(lines)
 
     word, color = state_word(status)
-    dot = STATE_DOTS.get(color, "⚪️")
+    dot = STATE_DOTS[word]
     pct = status.get("ping_success_15m")
     lines.append(f"🛰 {dot} {pct:.1f}%" if pct is not None else f"🛰 {dot}")
     lines.append("---")
@@ -189,17 +201,32 @@ def render(status, error=None) -> str:
     else:
         lines.append("Alerts: none")
 
+    notices = info_notices(status)
+    if notices:
+        lines.append("Info:")
+        for notice in notices:
+            lines.append(f"ℹ {notice}")
+
     lines.extend(_actions())
     return "\n".join(lines)
 
 
-def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
+def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S, keep_history=False):
+    """Dish status dict (from get_status), or None if the dish is unreachable.
+
+    Adds ``ping_success_15m`` from get_history; with ``keep_history`` the raw
+    parsed history is also attached as ``dish_get_history`` (for --debug).
+    """
     import grpc
     from google.protobuf.json_format import MessageToDict
     from yagrc import reflector as yagrc_reflector
 
     channel = grpc.insecure_channel(addr)
     try:
+        # Reflection uses yagrc's own QUERY_TIMEOUT (10 s), not `timeout`, so
+        # the worst case is ~10 + 2 * timeout = 18 s: still under the 30 s
+        # refresh. Off the Starlink LAN the connect usually fails fast with
+        # UNAVAILABLE instead.
         reflector = yagrc_reflector.GrpcReflectionClient()
         reflector.load_protocols(channel, symbols=["SpaceX.API.Device.Device"])
         stub_class = reflector.service_stub_class("SpaceX.API.Device.Device")
@@ -228,6 +255,8 @@ def fetch_status(addr=DISH_ADDR, timeout=DEADLINE_S):
             hist_response, preserving_proto_field_name=True
         ).get("dish_get_history", {})
         status["ping_success_15m"] = ping_success_pct(history)
+        if keep_history:
+            status["dish_get_history"] = history
     return status
 
 
@@ -257,14 +286,16 @@ def error_text(exc) -> str:
 
 def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else argv
+    if "--debug" in argv:
+        # Debugging wants the real traceback and the raw history, not the
+        # menu-bar rendering.
+        import json
+        print(json.dumps(fetch_status(keep_history=True), indent=2))
+        return
     try:
         status = fetch_status()
     except Exception as exc:  # noqa: BLE001 -- never leak a traceback to the menu bar
         print(render(None, error=error_text(exc)))
-        return
-    if "--debug" in argv:
-        import json
-        print(json.dumps(status, indent=2))
         return
     print(render(status))
 
